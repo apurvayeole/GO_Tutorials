@@ -1,0 +1,36 @@
+GO
+
+Runes:
+
+one folder will contain only one main folder. each file in that folder can access each other. 
+
+Correct way to run multiple files in the same package
+Run all files together, or just run the package (folder):
+Option 1 — Run all Go files in the folder
+go run.
+
+
+-LEXER : A lexer (short for lexical analyzer) is the first stage of a compiler or interpreter.
+-semicolon should be use in this language
+but lexer (it works before compiling any code. it takes raw code and break down into pieces like a keyword, identifier, operator, or number. 
+we don't need to add semicolon externally but it is required. go compiler, lexer automatically adds it before compilation.
+
+- comma(,) ok syntax
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

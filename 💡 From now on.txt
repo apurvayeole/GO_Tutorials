@@ -1,0 +1,46 @@
+GITHUB
+
+First time project → GitHub (one-time)
+git init
+git add .
+git commit -m "Initial commit"
+git remote add origin https://github.com/USERNAME/REPO.git
+git branch -m main
+git push -u origin main
+
+Daily work (MOST USED)
+git status
+git add .
+git commit -m "Describe your change"
+git push
+
+Create & work on a new branch
+git checkout -b feature-name
+Work → save files
+git add .
+git commit -m "Feature work"
+git push -u origin feature-name
+
+Merge branch into main
+git checkout main
+git pull
+git merge feature-name
+git push
+
+If editor opens:
+Esc → :wq → Enter
+
+Delete branch (after merge)
+git branch -d feature-name
+git push origin --delete feature-name
+
+git branch        # local
+git branch -r     # remote
+git branch -a     # all
+
+Check remote GitHub repo
+git remote -v
+
+Fix “push rejected” error
+git pull origin main --allow-unrelated-histories
+git push
