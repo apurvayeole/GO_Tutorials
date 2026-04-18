@@ -23,11 +23,19 @@ import(
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"golang.org/x/time/rate"
+	// "golang.org/x/time/rate"
 	"strings"
 	"sync"
 	"time"
+	"context"
+	"github.com/redis/go-redis/v9"
 )
+var ctx = context.Background() //timeouts and cancellation of requests
+
+var rdb = redis.NewClient(&redis.Options{ //creates connection
+	Addr: "localhost:6379",
+})
+
 type LoadBalancer struct {
 	backends []*Backend
 	current  int
@@ -36,7 +44,7 @@ type LoadBalancer struct {
 type Backend struct {
 	URL     *url.URL
 	Alive   bool
-	mu      sync.RWMutex
+	mu      sync.RWMutex //allows multiple readers but one writer
 }
 //middleware
 func authMiddleware(next http.Handler) http.Handler{
@@ -60,19 +68,19 @@ func authMiddleware(next http.Handler) http.Handler{
 		next.ServeHTTP(w,r)
 	})
 }
-var limiter = rate.NewLimiter(1,50)
-func rateLimitMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !limiter.Allow() {
-			http.Error(w, "Too many request", http.StatusTooManyRequests)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
+// var limiter = rate.NewLimiter(1,50)
+// func rateLimitMiddleware(next http.Handler) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		if !limiter.Allow() {
+// 			http.Error(w, "Too many request", http.StatusTooManyRequests)
+// 			return
+// 		}
+// 		next.ServeHTTP(w, r)
+// 	})
+// // }
 
 func chain(h http.Handler) http.Handler {
-	return rateLimitMiddleware(authMiddleware(h))
+	return redisRateLimiter(authMiddleware(h)) //order matters
 }
 //load-balancer
 func (lb *LoadBalancer) getNextBackend() *Backend {
@@ -81,9 +89,9 @@ func (lb *LoadBalancer) getNextBackend() *Backend {
 
 	n := len(lb.backends)
 
-	for i := 0; i < n; i++ {
+	for i := 0; i < n; i++ { //round robin logic
 		idx := (lb.current + i) % n
-		if lb.backends[idx].Alive {
+		if lb.backends[idx].Alive { //only healthy servers
 			lb.current = idx + 1
 			return lb.backends[idx]
 		}
@@ -114,37 +122,58 @@ func healthCheckLoop(backends []*Backend) {
 		time.Sleep(5 * time.Second)
 	}
 }
+func redisRateLimiter(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr //using IP as user id
+
+		//increase req count
+		count, err := rdb.Incr(ctx,ip).Result()
+		if err != nil {
+			http.Error(w,"Redis error", 500)
+			return
+		}
+		//set expiry
+		if count == 1 {
+			rdb.Expire(ctx, ip, 10*time.Second)
+		}
+
+		if count > 5{
+			http.Error(w,"Too many request", http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w,r)
+	})
+}
+
+
 func main(){
 	// multiple instances
 	url1, _ := url.Parse("http://localhost:3001")
 	url2, _ := url.Parse("http://localhost:3003")
 
 	backend1 := &Backend{URL: url1, Alive: true}
-    backend2 := &Backend{URL: url2, Alive: true}
+	backend2 := &Backend{URL: url2, Alive: true}
 
-    lb := &LoadBalancer{
-	backends: []*Backend{backend1, backend2},
-}
-	go healthCheckLoop(lb.backends)
-
-// 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 	target := lb.getNextTarget()
-// 	proxy := httputil.NewSingleHostReverseProxy(target)
-// 	proxy.ServeHTTP(w, r)
-// })
-
-http.Handle("/users", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-	backend := lb.getNextBackend()
-
-	if backend == nil {
-		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
-		return
+	lb := &LoadBalancer{
+		backends: []*Backend{backend1, backend2},
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(backend.URL)
-	proxy.ServeHTTP(w, r)
-})))
+	go healthCheckLoop(lb.backends)
+
+	http.Handle("/users", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		backend := lb.getNextBackend()
+
+		if backend == nil {
+			http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		proxy := httputil.NewSingleHostReverseProxy(backend.URL)
+		proxy.ServeHTTP(w, r)
+
+	})))
 
 	log.Println("Gateway with Load Balancing on 3000")
 	http.ListenAndServe(":3000", nil)
