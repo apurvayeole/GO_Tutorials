@@ -6,7 +6,7 @@ import (
 )
 
 func usersHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Users service working 3001 🚀")
+	fmt.Fprintln(w, "Users service working at port 3001 🚀")
 }
 
 func main() {
